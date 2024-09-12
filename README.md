@@ -1,4 +1,11 @@
 # Installation
+Make sure you have Bruno CLI installed.
+```
+npm install -g @usebruno/cli
+```
+More info here:
+https://docs.usebruno.com/bru-cli/overview
+
 ### lazy.nvim
 ```lua
 {
