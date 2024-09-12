@@ -171,7 +171,7 @@ local function set_env_telescope()
   local conf = require('telescope.config').values
 
   -- Find the environments directory
-  local env_dir = vim.fn.finddir('environments', vim.fn.getcwd() .. ';')
+  local env_dir = vim.fn.finddir('environments', vim.fn.expand('%:p:h') .. ';')
   if env_dir == '' then
     print("Environments directory not found. Please make sure you have an 'environments' directory in your project.")
     return
@@ -180,7 +180,7 @@ local function set_env_telescope()
   -- Get all .bru files in the environments directory
   local env_files = vim.fn.glob(env_dir .. '/*.bru', false, true)
   if #env_files == 0 then
-    print("No .env files found in the environments directory.")
+    print("No .bru files found in the environments directory.")
     return
   end
 
