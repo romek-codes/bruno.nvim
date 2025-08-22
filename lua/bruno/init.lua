@@ -16,6 +16,7 @@ M.last_raw_output = nil
 
 M.show_formatted_output = true
 M.suppress_formatting_errors = false
+M.picker = "telescope"
 
 -- Helper Functions
 local function get_valid_collections()
@@ -73,21 +74,51 @@ local function bruno_search()
 		return
 	end
 
-	telescope.live_grep({
-		prompt_title = "Search Bruno Files By Content",
-		search_dirs = vim.tbl_map(function(collection)
-			return collection.path
-		end, collections),
-		glob_pattern = "*.bru",
-		attach_mappings = function(prompt_bufnr, map)
-			actions.select_default:replace(function()
-				actions.close(prompt_bufnr)
-				local selection = action_state.get_selected_entry()
-				vim.cmd("edit " .. selection.filename)
-			end)
-			return true
-		end,
-	})
+	local search_dirs = vim.tbl_map(function(collection)
+		return collection.path
+	end, collections)
+
+	if M.picker == "fzf-lua" then
+		local fzf = require("fzf-lua")
+		fzf.live_grep({
+			prompt = "Search Bruno Files> ",
+			search_dirs = search_dirs,
+			file_ignore_patterns = { "^(?!.*%.bru$).*$" },
+			actions = {
+				["default"] = function(selected)
+					if selected and selected[1] then
+						local file = selected[1]:match("^([^:]+)")
+						vim.cmd("edit " .. file)
+					end
+				end,
+			},
+		})
+	elseif M.picker == "snacks" then
+		local snacks = require("snacks")
+		snacks.picker.grep({
+			prompt = "Search Bruno Files> ",
+			cwd = search_dirs[1], -- snacks typically uses single directory
+			glob = "*.bru",
+			on_select = function(item)
+				vim.cmd("edit " .. item.file)
+			end,
+		})
+	else
+		-- Original telescope implementation
+		telescope.live_grep({
+			prompt_title = "Search Bruno Files By Content",
+			search_dirs = search_dirs,
+			glob_pattern = "*.bru",
+			attach_mappings = function(prompt_bufnr, map)
+				actions.select_default:replace(function()
+					actions.close(prompt_bufnr)
+					local selection = action_state.get_selected_entry()
+					vim.cmd("edit " .. selection.filename)
+				end)
+				return true
+			end,
+		})
+	end
 end
 
 local function pretty_json_str(s, indent)
@@ -310,7 +341,7 @@ local function find_environments_dir()
 	return env_dir
 end
 
-local function set_env_telescope()
+local function set_env_picker()
 	local env_dir = find_environments_dir()
 	if env_dir == "" then
 		print(
@@ -329,25 +360,49 @@ local function set_env_telescope()
 		return vim.fn.fnamemodify(file, ":t:r")
 	end, env_files)
 
-	pickers
-		.new({}, {
-			prompt_title = "Select Bruno Environment",
-			finder = finders.new_table({ results = env_names }),
-			sorter = conf.generic_sorter({}),
-			attach_mappings = function(prompt_bufnr, map)
-				actions.select_default:replace(function()
-					actions.close(prompt_bufnr)
-					local selection = action_state.get_selected_entry()
-					M.current_env = selection[1]
-					print("Bruno environment set to: " .. M.current_env)
-				end)
-				return true
+	if M.picker == "fzf-lua" then
+		local fzf = require("fzf-lua")
+		fzf.fzf_exec(env_names, {
+			prompt = "Select Bruno Environment> ",
+			actions = {
+				["default"] = function(selected)
+					if selected and selected[1] then
+						M.current_env = selected[1]
+						print("Bruno environment set to: " .. M.current_env)
+					end
+				end,
+			},
+		})
+	elseif M.picker == "snacks" then
+		local snacks = require("snacks")
+		snacks.picker.pick({
+			items = env_names,
+			prompt = "Select Bruno Environment> ",
+			on_select = function(item)
+				M.current_env = item
+				print("Bruno environment set to: " .. M.current_env)
 			end,
 		})
-		:find()
+	else
+		pickers
+			.new({}, {
+				prompt_title = "Select Bruno Environment",
+				finder = finders.new_table({ results = env_names }),
+				sorter = conf.generic_sorter({}),
+				attach_mappings = function(prompt_bufnr, map)
+					actions.select_default:replace(function()
+						actions.close(prompt_bufnr)
+						local selection = action_state.get_selected_entry()
+						M.current_env = selection[1]
+						print("Bruno environment set to: " .. M.current_env)
+					end)
+					return true
+				end,
+			})
+			:find()
+	end
 end
 
--- Setup function
 function M.setup(opts)
 	opts = opts or {}
 	M.collection_paths = opts.collection_paths or {}
@@ -360,8 +415,12 @@ function M.setup(opts)
 		M.suppress_formatting_errors = opts.suppress_formatting_errors
 	end
 
+	if opts.picker ~= nil then
+		M.picker = opts.picker
+	end
+
 	vim.api.nvim_create_user_command("BrunoRun", run_bruno, {})
-	vim.api.nvim_create_user_command("BrunoEnv", set_env_telescope, {})
+	vim.api.nvim_create_user_command("BrunoEnv", set_env_picker, {})
 	vim.api.nvim_create_user_command("BrunoSearch", bruno_search, {})
 	vim.api.nvim_create_user_command("BrunoToggleFormat", toggle_output_format, {})
 end

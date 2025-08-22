@@ -30,7 +30,15 @@ Can also be installed from [nixpkgs](https://search.nixos.org/packages?channel=u
 ```lua
 {
 	"romek-codes/bruno.nvim",
-	dependencies = { "nvim-lua/plenary.nvim", "nvim-telescope/telescope.nvim" },
+    dependencies = {
+        "nvim-lua/plenary.nvim",
+        "nvim-telescope/telescope.nvim",
+        "ibhagwan/fzf-lua",
+        {
+            "folke/snacks.nvim",
+            opts = { picker = { enabled = true } },
+        },
+    },
 	config = function()
 		require("bruno").setup(
             {
@@ -42,6 +50,9 @@ Can also be installed from [nixpkgs](https://search.nixos.org/packages?channel=u
                 show_formatted_output = true, 
                 -- If formatting fails for whatever reason, don't show error message (will always fallback to unformatted output).
                 suppress_formatting_errors = false
+				-- picker = "snacks", -- or "fzf-lua" or "telescope"
+				-- picker = "fzf-lua", -- or "fzf-lua" or "telescope"
+				picker = "telescope", -- or "fzf-lua" or "telescope"
             }
         )
 	end
