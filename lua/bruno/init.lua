@@ -5,7 +5,7 @@ local Path = require("plenary.path")
 
 -- Configuration
 M.current_env = nil
-vim.g.last_bru_file = nil
+vim.g.last_bruno_file = nil
 M.last_raw_output = nil
 
 M.show_formatted_output = true
@@ -18,7 +18,7 @@ local search_pickers = {
 		fzf.live_grep({
 			prompt = prompt .. ": ",
 			search_paths = search_dirs,
-			rg_opts = "--column --line-number --no-heading --color=always --smart-case --glob=*.bru",
+			rg_opts = "--column --line-number --no-heading --color=always --smart-case --glob=*.bru --glob=*.yml",
 			actions = {
 				["default"] = function(selected)
 					local raw = selected[1]
@@ -36,7 +36,7 @@ local search_pickers = {
 		local snacks = require("snacks")
 		snacks.picker.grep({
 			prompt = prompt .. ": ",
-			glob = "*.bru",
+			glob = "{*.bru,*.yml}",
 			dirs = search_dirs,
 			on_select = function(item)
 				vim.cmd("edit " .. item.file)
@@ -51,7 +51,7 @@ local search_pickers = {
 		telescope.live_grep({
 			prompt_title = prompt,
 			search_dirs = search_dirs,
-			glob_pattern = "*.bru",
+			glob_pattern = "{*.bru,*.yml}",
 			attach_mappings = function(prompt_bufnr, map)
 				actions.select_default:replace(function()
 					actions.close(prompt_bufnr)
@@ -126,7 +126,7 @@ local function get_valid_collections()
 end
 
 local function is_not_nil(value)
-	return value ~= nil and value ~= vim.NIL
+	return value ~= nil and value ~= vim.NIL and value ~= vim.NULL
 end
 
 local function set_buffer_properties(bufnr, name)
@@ -166,17 +166,61 @@ local function create_or_get_sidebar()
 	return bufnr
 end
 
+local function get_current_request_file()
+	local current_file = vim.fn.expand("%:p")
+	local ext = vim.fn.fnamemodify(current_file, ":e")
+	if ext == "bru" or ext == "yml" then
+		vim.g.last_bruno_file = current_file
+		return current_file
+	end
+
+	local last = vim.g.last_bruno_file
+	if last and vim.fn.filereadable(last) == 1 then
+		return last
+	end
+
+	print("Current file is not a .bru/.yml file and no valid last Bruno file found")
+	return nil
+end
+
+local function find_collection_root(start_dir)
+	local markers = { "bruno.json", "opencollection.yml", "collection.bru" }
+	local dir = vim.fn.fnamemodify(start_dir, ":p")
+	while true do
+		for _, marker in ipairs(markers) do
+			if vim.fn.filereadable(dir .. "/" .. marker) == 1 then
+				return dir
+			end
+		end
+		local parent = vim.fn.fnamemodify(dir, ":h")
+		if parent == dir then
+			return nil
+		end
+		dir = parent
+	end
+end
+
 -- Main Functions
 local function bruno_search()
 	local collections = get_valid_collections()
-	if #collections == 0 then
-		print("No valid Bruno collections found.")
-		return
-	end
-
 	local search_dirs = vim.tbl_map(function(collection)
 		return collection.path
 	end, collections)
+
+	if #search_dirs == 0 then
+		local current_file = get_current_request_file()
+		if current_file then
+			local root = find_collection_root(vim.fn.fnamemodify(current_file, ":p:h"))
+			if root then
+				search_dirs = { root }
+			end
+		end
+	end
+
+	if #search_dirs == 0 then
+		print("No valid Bruno collections found.")
+		return
+	end
 
 	local picker_fn = search_pickers[M.picker] or search_pickers["telescope"]
 	picker_fn(search_dirs, "Bruno Files")
@@ -218,6 +262,19 @@ local function pretty_json_str(s, indent)
 	return table.concat(out)
 end
 
+local function format_headers(headers)
+	if headers == nil or headers == vim.NULL or headers == vim.NIL then
+		return {}
+	end
+	local lines = {}
+	for name, value in pairs(headers) do
+		if value ~= nil and value ~= vim.NULL and value ~= vim.NIL then
+			table.insert(lines, string.format("%s: %s", name, value))
+		end
+	end
+	return lines
+end
+
 local function format_bruno_output(raw_output)
 	local ok, data = pcall(vim.json.decode, raw_output)
 	if not ok or not data.results or #data.results == 0 then
@@ -227,28 +284,59 @@ local function format_bruno_output(raw_output)
 	local formatted = {}
 	local result = data.results[1]
 
-	table.insert(formatted, "REQUEST DETAILS:")
-	table.insert(formatted, string.format("  Method: %s", result.request.method))
-	table.insert(formatted, string.format("  URL: %s", result.request.url))
+	table.insert(formatted, "# Request")
+	table.insert(formatted, "")
+	table.insert(formatted, string.format("%s `%s`", result.request.method, result.request.url))
 	table.insert(formatted, "")
 
-	table.insert(formatted, "RESPONSE:")
+	local req_headers = format_headers(result.request.headers)
+	if #req_headers > 0 then
+		table.insert(formatted, "## Headers")
+		table.insert(formatted, "```")
+		for _, line in ipairs(req_headers) do
+			table.insert(formatted, line)
+		end
+		table.insert(formatted, "```")
+		table.insert(formatted, "## End Headers")
+		table.insert(formatted, "")
+	end
+
+	table.insert(formatted, "# Response")
+	table.insert(formatted, "")
+
 	if is_not_nil(result.error) then
-		table.insert(formatted, string.format("  Error: %s", result.error))
+		table.insert(formatted, string.format("**Error:** %s", result.error))
+		table.insert(formatted, "")
 	end
 
 	local status_text = is_not_nil(result.response.statusText) and " " .. tostring(result.response.statusText) or ""
 
 	table.insert(
 		formatted,
-		string.format("  Status: %s%s", tostring(result.response.status or "(no status)"), status_text)
+		string.format("Status: **%s%s**", tostring(result.response.status or "(no status)"), status_text)
 	)
 
-	table.insert(formatted, string.format("  Response Time: %dms", result.response.responseTime))
+	table.insert(formatted, string.format("Time: **%dms**", result.response.responseTime))
+	if M.current_env then
+		table.insert(formatted, string.format("Env: **%s**", M.current_env))
+	end
 	table.insert(formatted, "")
 
+	local res_headers = format_headers(result.response.headers)
+	if #res_headers > 0 then
+		table.insert(formatted, "## Headers")
+		table.insert(formatted, "```")
+		for _, line in ipairs(res_headers) do
+			table.insert(formatted, line)
+		end
+		table.insert(formatted, "```")
+		table.insert(formatted, "## End Headers")
+		table.insert(formatted, "")
+	end
+
 	if is_not_nil(result.response.data) then
-		table.insert(formatted, "RESPONSE DATA:")
+		table.insert(formatted, "# Response Data")
+		table.insert(formatted, "")
 		table.insert(formatted, "```json")
 
 		local data_content = result.response.data == null and "null"
@@ -264,35 +352,17 @@ local function format_bruno_output(raw_output)
 	return formatted
 end
 
-local function get_current_bru_file()
-	local current_file = vim.fn.expand("%:p")
-	if vim.fn.fnamemodify(current_file, ":e") == "bru" then
-		vim.g.last_bru_file = current_file
-		return current_file
-	end
-
-	local last_bru = vim.g.last_bru_file
-	if last_bru and vim.fn.filereadable(last_bru) == 1 then
-		return last_bru
-	end
-
-	print("Current file is not a .bru file and no valid last .bru file found")
-	return nil
-end
-
 local function run_bruno()
-	local current_file = get_current_bru_file()
+	local current_file = get_current_request_file()
 	if not current_file then
 		return
 	end
 
-	local root_dir = vim.fn.findfile("bruno.json", vim.fn.fnamemodify(current_file, ":p:h") .. ";")
-	if root_dir == "" then
-		print("Bruno collection root not found. Please ensure the .bru file is in a Bruno collection.")
+	local root_dir = find_collection_root(vim.fn.fnamemodify(current_file, ":p:h"))
+	if not root_dir then
+		print("Bruno collection root not found. Please ensure the file is in a Bruno collection.")
 		return
 	end
-
-	root_dir = vim.fn.fnamemodify(root_dir, ":p:h")
 	local temp_file = vim.fn.tempname()
 	local cmd = string.format(
 		"cd %s && bru run %s -o %s",
@@ -331,7 +401,10 @@ local function run_bruno()
 				local lines
 
 				if M.show_formatted_output then
-					vim.api.nvim_buf_set_option(bufnr, "filetype", "text")
+					vim.api.nvim_buf_set_option(bufnr, "filetype", "markdown")
+					vim.api.nvim_buf_set_option(bufnr, "foldmethod", "marker")
+					vim.api.nvim_buf_set_option(bufnr, "foldmarker", "## Headers,End Headers")
+					vim.api.nvim_buf_set_option(bufnr, "foldlevel", 0)
 					local ok, result = pcall(format_bruno_output, output)
 					if ok then
 						lines = result
@@ -378,7 +451,10 @@ local function toggle_output_format()
 		if bufnr ~= -1 then
 			local lines
 			if M.show_formatted_output then
-				vim.api.nvim_buf_set_option(bufnr, "filetype", "text")
+				vim.api.nvim_buf_set_option(bufnr, "filetype", "markdown")
+				vim.api.nvim_buf_set_option(bufnr, "foldmethod", "marker")
+				vim.api.nvim_buf_set_option(bufnr, "foldmarker", "## Headers,End Headers")
+				vim.api.nvim_buf_set_option(bufnr, "foldlevel", 0)
 				local ok, result = pcall(format_bruno_output, M.last_raw_output)
 				lines = ok and result or vim.split(M.last_raw_output, "\n")
 			else
@@ -392,28 +468,32 @@ end
 
 local function find_environments_dir()
 	local search_dir = vim.fn.expand("%:p:h")
-	local env_dir = vim.fn.finddir("environments", search_dir .. ";")
-
-	if env_dir == "" and vim.g.last_bru_file then
-		search_dir = vim.fn.fnamemodify(vim.g.last_bru_file, ":p:h")
-		env_dir = vim.fn.finddir("environments", search_dir .. ";")
+	local root = find_collection_root(search_dir)
+	if not root and vim.g.last_bruno_file then
+		root = find_collection_root(vim.fn.fnamemodify(vim.g.last_bruno_file, ":p:h"))
 	end
-
-	return env_dir
+	if not root then
+		return ""
+	end
+	local env_dir = root .. "/environments"
+	if vim.fn.isdirectory(env_dir) == 1 then
+		return env_dir
+	end
+	return ""
 end
 
 local function set_env_picker()
 	local env_dir = find_environments_dir()
 	if env_dir == "" then
 		print(
-			"Environments directory not found. You need to run BrunoRun on a .bru file first, or have the current buffer be a .bru file."
+			"Environments directory not found. You need to run BrunoRun on a .bru/.yml file first, or have the current buffer be a Bruno file."
 		)
 		return
 	end
 
-	local env_files = vim.fn.glob(env_dir .. "/*.bru", false, true)
+	local env_files = vim.fn.glob(env_dir .. "/*.{bru,yml,json}", false, true)
 	if #env_files == 0 then
-		print("No .bru files found in the environments directory.")
+		print("No environment files found in the environments directory.")
 		return
 	end
 

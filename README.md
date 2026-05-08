@@ -2,12 +2,12 @@
 
 # Features:
 
-- **Execute Bruno requests** - Run `.bru` files directly from Neovim
-- **Smart fallback** - Uses last opened `.bru` file when current buffer isn't a Bruno file
+- **Execute Bruno requests** - Run `.bru` and `.yml` (OpenCollection) files directly from Neovim
+- **Smart fallback** - Uses last opened Bruno file when current buffer isn't a Bruno file
 - **Environment switching** - Select Bruno environments via a picker (`telescope`, `fzf-lua`, or `snacks`)
 - **Formatted output** - Clean response display with request details and JSON formatting
 - **Output toggle** - Switch between formatted and raw JSON output
-- **Content search** - Search Bruno files by their contents using your chosen picker
+- **Content search** - Search Bruno files (`.bru` and `.yml`) by their contents using your chosen picker
 - **Persistent sidebar** - Reuses output buffer to avoid window clutter
 
 ## Screenshots:
@@ -62,8 +62,31 @@ Can also be installed from [nixpkgs](https://search.nixos.org/packages?channel=u
 }
 ```
 
+## render-markdown.nvim
+
+For richer output rendering, pair with [render-markdown.nvim](https://github.com/MeanderingProgrammer/render-markdown.nvim). The formatted output is valid Markdown (`filetype=markdown`), so render-markdown will automatically render headings, code fences, bold text, etc.
+
+```lua
+{
+    "MeanderingProgrammer/render-markdown.nvim",
+    opts = {},
+    -- The Bruno Output buffer will be picked up automatically via filetype.
+}
+```
+
+If you want to restrict rendering to only the Bruno output buffer, use:
+
+```lua
+{
+    "MeanderingProgrammer/render-markdown.nvim",
+    opts = {
+        buftype = { "nofile" }, -- Bruno Output buffer uses buftype=nofile
+    },
+}
+```
+
 # Usage:
-### Run currently opened .bru file
+### Run currently opened Bruno request (.bru / .yml)
 
 :BrunoRun
 
@@ -71,7 +94,7 @@ Can also be installed from [nixpkgs](https://search.nixos.org/packages?channel=u
 
 :BrunoEnv
 
-### Search for .bru files
+### Search for Bruno files (.bru / .yml)
 
 :BrunoSearch
 
